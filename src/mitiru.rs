@@ -11,6 +11,7 @@ pub struct QuoteContent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Quotes {
     pub title: String,
+    pub author: Option<String>,
     pub main: Vec<QuoteContent>,
     pub postscript: String,
 }
