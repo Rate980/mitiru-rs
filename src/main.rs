@@ -1,16 +1,18 @@
 mod mitiru;
 
+use core::panic;
 use std::{fs, io::BufReader};
 
 use axum::{
+    debug_handler,
     extract::{Path, State},
     http::StatusCode,
     routing::get,
     Json, Router,
 };
-use axum_macros::debug_handler;
 use mitiru::{QuoteContent, Quotes};
 use serde::{Deserialize, Serialize};
+use tower_http::catch_panic::CatchPanicLayer;
 
 async fn rote_handler(State(quotes): State<Quotes>) -> Json<Quotes> {
     Json(quotes.clone())
@@ -26,62 +28,31 @@ enum ContentTypes {
 }
 
 #[debug_handler]
-async fn get_content(
-    Path(path): Path<String>,
+async fn get_title(State(quotes): State<Quotes>) -> Json<String> {
+    Json(quotes.title.clone())
+}
+
+#[debug_handler]
+async fn get_postscript(State(quotes): State<Quotes>) -> Json<String> {
+    Json(quotes.postscript.clone())
+}
+
+#[debug_handler]
+async fn get_main(State(quotes): State<Quotes>) -> Json<Vec<QuoteContent>> {
+    Json(quotes.main.clone())
+}
+#[debug_handler]
+async fn test() -> Json<Option<String>> {
+    panic!("test");
+}
+#[debug_handler]
+async fn get_mein_content(
+    Path(index): Path<usize>,
     State(quotes): State<Quotes>,
-) -> Result<Json<ContentTypes>, StatusCode> {
-    // println!("{}", path);
-    let path = path.split("/").collect::<Vec<&str>>();
-    if path.first().is_none() {
-        return Err(StatusCode::NOT_FOUND);
-    }
-
-    let path = if path.last().unwrap().is_empty() {
-        let mut path = path;
-        path.pop();
-        path
-    } else {
-        path
-    };
-
-    match *path.first().unwrap() {
-        "title" => Ok(Json(ContentTypes::String(quotes.title.clone()))),
-        "postscript" => Ok(Json(ContentTypes::String(quotes.postscript.clone()))),
-        "main" => {
-            if path.get(1).is_none() {
-                Ok(Json(ContentTypes::Main(quotes.main.clone())))
-            } else {
-                let index = path.get(1).unwrap().parse::<usize>().unwrap();
-                if path.get(2).is_none() {
-                    Ok(Json(ContentTypes::QuoteContent(quotes.main[index].clone())))
-                } else {
-                    let key = path.get(2).unwrap();
-                    match *key {
-                        "character" => Ok(Json(ContentTypes::String(
-                            quotes.main[index].character.clone(),
-                        ))),
-                        "quote" => Ok(Json(ContentTypes::String(quotes.main[index].quote.clone()))),
-                        "story" => Ok(Json(ContentTypes::String(quotes.main[index].story.clone()))),
-                        "how_to_use" => {
-                            if path.get(3).is_none() {
-                                Ok(Json(ContentTypes::VecString(
-                                    quotes.main[index].how_to_use.clone(),
-                                )))
-                            } else if let Ok(use_index) = path.get(3).unwrap().parse::<usize>() {
-                                Ok(Json(ContentTypes::String(
-                                    quotes.main[index].how_to_use[use_index].clone(),
-                                )))
-                            } else {
-                                Err(StatusCode::NOT_FOUND)
-                            }
-                        }
-                        _ => Err(StatusCode::NOT_FOUND),
-                    }
-                }
-            }
-        }
-        _ => Err(StatusCode::NOT_FOUND),
-    }
+) -> Result<Json<QuoteContent>, StatusCode> {
+    Ok(Json(
+        quotes.main.get(index).ok_or(StatusCode::NOT_FOUND)?.clone(),
+    ))
 }
 
 #[tokio::main]
@@ -92,7 +63,18 @@ async fn main() {
     // let root_handler = || async { quotes };
     let app = Router::new()
         .route("/", get(rote_handler).with_state(quotes.clone()))
-        .route("/*key", get(get_content).with_state(quotes));
+        .route("/title", get(get_title).with_state(quotes.clone()))
+        .route(
+            "/postscript/",
+            get(get_postscript).with_state(quotes.clone()),
+        )
+        .route("/main", get(get_main).with_state(quotes.clone()))
+        .route(
+            "/main/:index",
+            get(get_mein_content).with_state(quotes.clone()),
+        )
+        .route("/test", get(test))
+        .layer(CatchPanicLayer::new());
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
     axum::serve(listener, app.into_make_service())
         .await
